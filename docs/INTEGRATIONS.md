@@ -127,6 +127,37 @@ For reusable workflows, prefer named templates from `gateway.config.json`:
 
 The `purpose` field also controls per-type routing if configured in `routing.perType`.
 
+HTTP endpoint:
+
+```bash
+curl -X POST https://wa.example.com/api/send-message \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{
+    "phone": "+923001234567",
+    "template": "order_update",
+    "purpose": "order_update",
+    "variables": {
+      "name": "Alyan",
+      "orderNumber": "1001",
+      "status": "dispatched"
+    }
+  }'
+```
+
+Inline OTP templates can be sent directly to `/api/send-otp`:
+
+```json
+{
+  "phone": "+923001234567",
+  "otp": "482913",
+  "template": "{{appName}} code: {{otp}}. Expires in {{expiryMinutes}} minutes.",
+  "variables": {
+    "appName": "Example App"
+  }
+}
+```
+
 ## n8n Or Workflow Tools
 
 Use an HTTP Request node:

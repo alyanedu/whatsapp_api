@@ -241,6 +241,23 @@ curl -X POST http://localhost:3030/api/send-otp \
   -d '{"phone":"+923001234567","otp":"482913","purpose":"login","appName":"Example App"}'
 ```
 
+Inline custom OTP template:
+
+```bash
+curl -X POST http://localhost:3030/api/send-otp \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{
+    "phone": "+923001234567",
+    "otp": "482913",
+    "purpose": "login",
+    "template": "{{appName}} login code: {{otp}}. Expires in {{expiryMinutes}} minutes.",
+    "variables": {
+      "appName": "Example App"
+    }
+  }'
+```
+
 Default message:
 
 ```text
@@ -268,6 +285,26 @@ curl -X POST http://localhost:3030/api/send-message \
   -H "X-API-Key: YOUR_API_KEY" \
   -d '{"phone":"+923001234567","text":"Test message from WhatsApp OTP Gateway.","purpose":"manual-test"}'
 ```
+
+Named template with variables:
+
+```bash
+curl -X POST http://localhost:3030/api/send-message \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{
+    "phone": "+923001234567",
+    "template": "order_update",
+    "purpose": "order_update",
+    "variables": {
+      "name": "Alyan",
+      "orderNumber": "1001",
+      "status": "dispatched"
+    }
+  }'
+```
+
+`template` must match a key in `templates.messages` from `gateway.config.json`. `purpose` is also used for per-message-type session routing.
 
 ## Multi-Session Failover
 
