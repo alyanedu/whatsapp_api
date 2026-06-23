@@ -45,7 +45,7 @@ protectedRouter.use(apiKeyAuth(config.apiKey));
 app.get('/health', (req, res) => {
   res.json({
     success: true,
-    service: 'timberhub-whatsapp-api',
+    service: 'whatsapp-otp-gateway',
     time: new Date().toISOString(),
   });
 });

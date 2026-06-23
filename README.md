@@ -1,37 +1,76 @@
-# TimberHub WhatsApp API
+# WhatsApp OTP Gateway
 
-Lightweight self-hosted WhatsApp OTP gateway for Pakistan-only OTP delivery. It uses Baileys, stores WhatsApp auth sessions as JSON files, and can fail over across multiple logged-in WhatsApp accounts.
+Lightweight self-hosted WhatsApp OTP gateway with JSON session storage, multi-session failover, and a small HTTP API.
 
-This service is intentionally separate from the TimberHub Flutter app. The app integration can be planned later.
+It is designed for teams that need a simple transactional WhatsApp sender for verification codes, internal testing, or controlled operational notifications. It uses Baileys under the hood, so it does not need Chromium or a browser process.
 
-## Why This Is Lightweight
+> This project is not affiliated with WhatsApp, Meta, or Baileys. It uses unofficial WhatsApp Web automation. Use it at your own risk, respect local laws, and do not use it for spam, bulk marketing, scraping, harassment, or abusive automation.
 
-- No Chromium or browser automation.
-- Plain Node.js + Express.
-- WhatsApp sessions are JSON files under `sessions/`.
-- Runtime logs are simple JSON files under `data/`.
-- Works with PM2 on a low-end Ubuntu server.
+## Features
 
-## Low-RAM Notes
+- JSON-based WhatsApp auth sessions under `sessions/`.
+- Multiple sender sessions with priority-based failover.
+- OTP endpoint with safe, simple message formatting.
+- Optional generic message endpoint for controlled manual tests.
+- QR login as JSON `dataUrl` or PNG image endpoint.
+- API-key authentication with `X-API-Key`.
+- Pakistan-only phone validation by default, configurable through `.env`.
+- Request rate limiting.
+- File-based masked message logs.
+- PM2 config for low-memory Ubuntu hosts.
 
-- Use `npm start` or PM2 in production, not `npm run dev`.
-- Install on the server with `npm install --omit=dev`.
-- Keep active WhatsApp sessions low; one primary and one fallback is a good starting point.
-- PM2 is configured with `--max-old-space-size=256` and restarts at `300M`.
-- Message logs keep only the latest `MAX_LOG_ENTRIES` entries, defaulting to `200`.
+## How It Works
 
-## Important
+```text
+Your app / backend / automation tool
+        |
+        | HTTPS POST /api/send-otp
+        v
+WhatsApp OTP Gateway
+        |
+        | Baileys WhatsApp Web session
+        v
+Logged-in WhatsApp sender account
+        |
+        v
+Recipient receives WhatsApp message
+```
 
-This uses unofficial WhatsApp Web automation. Keep volume low, use it only for transactional OTP messages, and keep fallback/recovery options for production login.
+You create one or more sessions, scan the QR code with WhatsApp, and the gateway stores the resulting session auth files locally. When a send request arrives, the gateway tries connected sessions in priority order.
 
-## Setup
+## Requirements
+
+- Node.js 20 or newer.
+- A WhatsApp account dedicated to transactional sending.
+- A server or computer that can keep the Node process running.
+- HTTPS reverse proxy for production use.
+
+## Security Warning
+
+The following files are credentials or private runtime data. Never commit or share them:
+
+```text
+.env
+sessions/
+data/sessions.json
+data/message-log.json
+data/*.png
+```
+
+They are ignored by `.gitignore` by default. If they ever become public, unlink the WhatsApp device from the phone and rotate `API_KEY` immediately.
+
+## Quick Start
 
 ```bash
 npm install
 cp .env.example .env
 ```
 
-Edit `.env` and set a long `API_KEY`.
+Edit `.env` and set a long random API key:
+
+```env
+API_KEY=replace-with-a-long-random-secret
+```
 
 Start locally:
 
@@ -45,7 +84,17 @@ Health check:
 curl http://localhost:3030/health
 ```
 
-## Create And Login A WhatsApp Session
+Expected response:
+
+```json
+{
+  "success": true,
+  "service": "whatsapp-otp-gateway",
+  "time": "2026-06-23T00:00:00.000Z"
+}
+```
+
+## Create A WhatsApp Session
 
 Create a session:
 
@@ -53,26 +102,47 @@ Create a session:
 curl -X POST http://localhost:3030/api/sessions \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_API_KEY" \
-  -d '{"id":"otp-1","label":"TimberHub OTP 1","priority":1}'
+  -d '{"id":"otp-1","label":"OTP Sender 1","priority":1}'
 ```
 
-Start it:
+Start the session:
 
 ```bash
 curl -X POST http://localhost:3030/api/sessions/otp-1/start \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
-Get the QR code:
+Get QR as JSON:
 
 ```bash
 curl http://localhost:3030/api/sessions/otp-1/qr \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
-The response includes `dataUrl`, which you can open in a browser or render in a small admin tool later.
+Or open the PNG QR in a browser:
 
-Create more sessions with lower priority numbers for primary accounts and higher numbers for fallback accounts.
+```text
+http://localhost:3030/api/sessions/otp-1/qr.png?apiKey=YOUR_API_KEY
+```
+
+On your phone:
+
+```text
+WhatsApp -> Linked devices -> Link a device -> scan QR
+```
+
+Check status:
+
+```bash
+curl http://localhost:3030/api/sessions \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+You want to see:
+
+```json
+"status": "connected"
+```
 
 ## Send OTP
 
@@ -80,16 +150,42 @@ Create more sessions with lower priority numbers for primary accounts and higher
 curl -X POST http://localhost:3030/api/send-otp \
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_API_KEY" \
-  -d '{"phone":"+923001234567","otp":"482913","purpose":"login"}'
+  -d '{"phone":"+923001234567","otp":"482913","purpose":"login","appName":"Example App"}'
 ```
 
-Only Pakistan numbers are allowed by default.
+Default message:
+
+```text
+Your Example App verification code is 482913.
+
+This code expires in 5 minutes. Do not share it with anyone.
+```
+
+## Send A Manual Test Message
+
+Use this only for controlled testing or internal operational messages:
+
+```bash
+curl -X POST http://localhost:3030/api/send-message \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{"phone":"+923001234567","text":"Test message from WhatsApp OTP Gateway.","purpose":"manual-test"}'
+```
 
 ## Multi-Session Failover
 
-Sessions are sorted by `priority`. Sending tries the first connected enabled session. If it fails, the API tries the next connected enabled session.
+Sessions are sorted by `priority`. Lower priority numbers send first.
 
-Repeated failures temporarily pause that session using these `.env` values:
+Example:
+
+```json
+{"id":"otp-1","label":"Primary sender","priority":1}
+{"id":"otp-2","label":"Fallback sender","priority":2}
+```
+
+If `otp-1` is disconnected or sending fails, the gateway tries `otp-2`.
+
+Repeated send failures and reconnect failures are controlled by:
 
 ```env
 SESSION_FAILURE_LIMIT=3
@@ -99,22 +195,40 @@ RECONNECT_MAX_DELAY_SECONDS=300
 RECONNECT_MAX_ATTEMPTS=5
 ```
 
-If a session enters `paused`, call `POST /api/sessions/:id/start` after checking the phone's linked-device state.
-
-## Moving From Windows To Ubuntu
-
-1. Login sessions on Windows by scanning QR codes.
-2. Stop the API.
-3. Copy the project to Ubuntu, including `sessions/` and `data/sessions.json`.
-4. Run `npm install --omit=dev` on Ubuntu.
-5. Start with PM2.
-
-If `npm install` fails while cloning a public GitHub dependency over SSH, force GitHub dependencies through HTTPS:
+If a session enters `paused`, inspect the sender phone's linked-device state, then manually restart it:
 
 ```bash
-git config --global url."https://github.com/".insteadOf ssh://git@github.com/
-git config --global url."https://github.com/".insteadOf git@github.com:
+curl -X POST http://localhost:3030/api/sessions/otp-1/start \
+  -H "X-API-Key: YOUR_API_KEY"
 ```
+
+## Environment Variables
+
+See `.env.example` for all options.
+
+Common production values:
+
+```env
+PORT=3030
+HOST=127.0.0.1
+NODE_ENV=production
+API_KEY=replace-with-a-long-random-secret
+PAKISTAN_ONLY=true
+DEFAULT_COUNTRY_CODE=92
+MAX_LOG_ENTRIES=200
+```
+
+Set `PAKISTAN_ONLY=false` if you want to allow non-Pakistan numbers. You are responsible for validating numbers and complying with local rules.
+
+## Production Deployment With PM2
+
+Install production dependencies:
+
+```bash
+npm install --omit=dev
+```
+
+Start with PM2:
 
 ```bash
 npm install -g pm2
@@ -123,9 +237,64 @@ pm2 save
 pm2 startup
 ```
 
-Keep `sessions/`, `data/`, and `.env` private. They are intentionally ignored by git.
+Low-RAM defaults:
 
-## API Summary
+- PM2 runs one process.
+- Node heap is capped with `--max-old-space-size=256`.
+- PM2 restarts the process at `300M`.
+- Logs retain only the latest `MAX_LOG_ENTRIES` entries.
+
+## Nginx Reverse Proxy
+
+For production, do not expose port `3030` directly. Bind the API to `127.0.0.1` and put Nginx in front.
+
+```nginx
+server {
+    listen 80;
+    server_name wa.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3030;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Add HTTPS with Certbot:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d wa.example.com
+```
+
+Then use:
+
+```text
+https://wa.example.com
+```
+
+## Move Sessions Between Machines
+
+Session files are not committed to git. To move a logged-in session from one trusted machine to another, copy these private files securely:
+
+```text
+sessions/
+data/sessions.json
+```
+
+Example:
+
+```bash
+scp -r sessions data/sessions.json user@server:/path/to/whatsapp-otp-gateway/
+```
+
+Never upload these files to a public issue, gist, build artifact, or repository.
+
+## API Reference
 
 Public:
 
@@ -145,10 +314,20 @@ Protected with `X-API-Key`:
 - `POST /api/send-message`
 - `GET /api/logs`
 
-## GitHub
+## Automation And MCP
 
-Repository target:
+This gateway is just an HTTP API, so it can be called from backend jobs, Supabase Edge Functions, n8n, cron scripts, agent workflows, or an MCP server.
 
-```text
-https://github.com/alyanedu/whatsapp_api
-```
+See [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) for examples and safety notes.
+
+## Responsible Use
+
+- Send only user-requested OTPs or legitimate transactional messages.
+- Do not send bulk marketing or unsolicited messages.
+- Do not include links in OTP messages unless absolutely necessary.
+- Keep a fallback login channel for important production systems.
+- Use a dedicated sender number, not a personal or irreplaceable account.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

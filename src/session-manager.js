@@ -81,7 +81,7 @@ export class SessionManager {
         version,
         printQRInTerminal: false,
         logger: baileysLogger,
-        browser: ['TimberHub OTP Gateway', 'Chrome', '1.0.0'],
+        browser: ['WhatsApp OTP Gateway', 'Chrome', '1.0.0'],
         markOnlineOnConnect: false,
         syncFullHistory: false,
       });

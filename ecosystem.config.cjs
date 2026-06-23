@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'timberhub-whatsapp-api',
+      name: 'whatsapp-otp-gateway',
       script: 'src/server.js',
       instances: 1,
       exec_mode: 'fork',

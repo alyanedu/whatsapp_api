@@ -7,7 +7,7 @@ export const sendOtpSchema = z.object({
   phone: z.string().min(8),
   otp: z.string().regex(/^\d{4,8}$/, 'OTP must be 4 to 8 digits.'),
   purpose: z.string().max(40).optional().default('login'),
-  appName: z.string().max(40).optional().default('TimberHub'),
+  appName: z.string().max(40).optional().default('Your app'),
 });
 
 export const sendMessageSchema = z.object({
