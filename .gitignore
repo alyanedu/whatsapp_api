@@ -1,0 +1,23 @@
+node_modules/
+.env
+.env.*
+!.env.example
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime state. Keep private and copy to the server manually/securely.
+sessions/*
+!sessions/.gitkeep
+data/*
+!data/.gitkeep
+
+# PM2/logs
+logs/
+*.log
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
