@@ -36,6 +36,7 @@ export const config = {
   sessionPauseSeconds: intEnv('SESSION_PAUSE_SECONDS', 300),
   requestsPerMinute: intEnv('REQUESTS_PER_MINUTE', 60),
   otpRequestsPer15Min: intEnv('OTP_REQUESTS_PER_15_MIN', 30),
+  maxLogEntries: intEnv('MAX_LOG_ENTRIES', 200),
 };
 
 export function assertConfig() {

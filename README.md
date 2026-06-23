@@ -12,6 +12,14 @@ This service is intentionally separate from the TimberHub Flutter app. The app i
 - Runtime logs are simple JSON files under `data/`.
 - Works with PM2 on a low-end Ubuntu server.
 
+## Low-RAM Notes
+
+- Use `npm start` or PM2 in production, not `npm run dev`.
+- Install on the server with `npm install --omit=dev`.
+- Keep active WhatsApp sessions low; one primary and one fallback is a good starting point.
+- PM2 is configured with `--max-old-space-size=256` and restarts at `300M`.
+- Message logs keep only the latest `MAX_LOG_ENTRIES` entries, defaulting to `200`.
+
 ## Important
 
 This uses unofficial WhatsApp Web automation. Keep volume low, use it only for transactional OTP messages, and keep fallback/recovery options for production login.

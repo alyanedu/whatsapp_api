@@ -5,7 +5,6 @@ import makeWASocket, {
   useMultiFileAuthState,
 } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
-import qrcodeTerminal from 'qrcode-terminal';
 
 import { config } from './config.js';
 import { baileysLogger, logger } from './logger.js';
@@ -187,7 +186,6 @@ export class SessionManager {
     if (update.qr) {
       session.qr = update.qr;
       session.status = 'qr';
-      qrcodeTerminal.generate(update.qr, { small: true });
       logger.info({ sessionId: session.id }, 'QR code generated for WhatsApp session');
     }
 
