@@ -113,6 +113,14 @@ Expected response:
 
 You can use curl or the built-in CLI.
 
+Interactive menu:
+
+```bash
+npm run gateway
+```
+
+The menu can create sessions, start sessions, open QR codes, replace/delete sessions, send OTPs, edit local config, and reload gateway config.
+
 CLI:
 
 ```bash
@@ -396,6 +404,12 @@ curl -X POST http://localhost:3030/api/config/reload \
 ## CLI Defaults And Local Editing
 
 The CLI can remember connection defaults in ignored `data/cli-config.json`:
+
+Launch the interactive menu:
+
+```bash
+npm run gateway
+```
 
 ```bash
 npm run gateway -- set --url https://wa.example.com

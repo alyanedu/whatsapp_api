@@ -150,6 +150,7 @@ Use an HTTP Request node:
 The CLI can store your default URL and key:
 
 ```bash
+npm run gateway
 npm run gateway -- setup --url https://wa.example.com --key YOUR_API_KEY
 npm run gateway -- sessions
 npm run gateway -- qr --id otp-1 --mode open

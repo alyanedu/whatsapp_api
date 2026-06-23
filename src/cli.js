@@ -4,6 +4,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createInterface } from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'node:process';
 
 import { readJson, writeJson } from './utils/files.js';
 
@@ -29,7 +31,7 @@ const aliases = {
   'show-defaults': 'showDefaults',
 };
 
-const [rawCommand = 'help', ...rawArgs] = process.argv.slice(2);
+const [rawCommand = 'menu', ...rawArgs] = process.argv.slice(2);
 const command = aliases[rawCommand] || rawCommand;
 const args = parseArgs(rawArgs);
 const defaults = await readJson(cliConfigPath, {});
@@ -42,6 +44,7 @@ try {
 }
 
 async function run(name, args) {
+  if (name === 'menu') return menu();
   if (name === 'help' || args.help) return printHelp();
   if (name === 'setup') return setup(args);
   if (name === 'set') return setDefaults(args);
@@ -62,6 +65,146 @@ async function run(name, args) {
   if (name === 'sendOtp') return sendOtp(args);
   if (name === 'sendMessage') return sendMessage(args);
   throw new Error(`Unknown command '${name}'. Run: npm run gateway -- help`);
+}
+
+async function menu() {
+  const rl = createInterface({ input, output });
+  try {
+    let exit = false;
+    while (!exit) {
+      printMenu();
+      const choice = (await rl.question('Choose an option: ')).trim();
+      try {
+        if (choice === '1') await request({ method: 'GET', path: '/health', auth: false }, {});
+        else if (choice === '2') await request({ method: 'GET', path: '/api/sessions' }, {});
+        else if (choice === '3') await menuCreateSession(rl);
+        else if (choice === '4') await menuSessionAction(rl, 'start');
+        else if (choice === '5') await menuQr(rl);
+        else if (choice === '6') await menuSessionAction(rl, 'refresh-qr');
+        else if (choice === '7') await menuSessionAction(rl, 'replace');
+        else if (choice === '8') await menuDeleteSession(rl);
+        else if (choice === '9') await menuSendOtp(rl);
+        else if (choice === '10') await menuSendMessage(rl);
+        else if (choice === '11') await request({ method: 'GET', path: '/api/config' }, { output: 'json' });
+        else if (choice === '12') await request({ method: 'POST', path: '/api/config/reload' }, {});
+        else if (choice === '13') await menuDefaults(rl);
+        else if (choice === '0' || choice.toLowerCase() === 'q') exit = true;
+        else printError('Unknown menu option.');
+      } catch (error) {
+        printError(error.message);
+      }
+
+      if (!exit) await rl.question('\nPress Enter to continue...');
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+function printMenu() {
+  console.log(`
+WhatsApp OTP Gateway
+
+  1. Health check
+  2. List sessions
+  3. Create session
+  4. Start session
+  5. Open/show QR
+  6. Refresh QR
+  7. Replace session
+  8. Delete session
+  9. Send OTP
+ 10. Send message
+ 11. Show gateway config
+ 12. Reload gateway config
+ 13. CLI setup/defaults
+  0. Exit
+`);
+}
+
+async function menuCreateSession(rl) {
+  const id = await askRequired(rl, 'Session id (example: otp-1): ');
+  const label = await rl.question('Label (optional): ');
+  const priority = await rl.question('Priority (default 100): ');
+  await createSession({ id, label: label || undefined, priority: priority || undefined });
+}
+
+async function menuSessionAction(rl, action) {
+  const id = await askRequired(rl, 'Session id: ');
+  if (action === 'start') return request({ method: 'POST', path: `/api/sessions/${id}/start` }, {});
+  if (action === 'refresh-qr') return request({ method: 'POST', path: `/api/sessions/${id}/refresh-qr` }, {});
+  if (action === 'replace') return replaceSession({ id });
+}
+
+async function menuQr(rl) {
+  const id = await askRequired(rl, 'Session id: ');
+  const mode = (await rl.question('QR mode url/json/open/save (default open): ')).trim() || 'open';
+  const out = mode === 'save' ? await rl.question('Output path (optional): ') : undefined;
+  return qr({ id, mode, out: out || undefined });
+}
+
+async function menuDeleteSession(rl) {
+  const id = await askRequired(rl, 'Session id: ');
+  const logout = await yesNo(rl, 'Ask WhatsApp to logout/unlink first?');
+  return deleteSession({ id, logout: logout ? 'true' : 'false' });
+}
+
+async function menuSendOtp(rl) {
+  const phone = await askRequired(rl, 'Phone: ');
+  const otp = await askRequired(rl, 'OTP: ');
+  const appName = await rl.question('App name (optional): ');
+  const purpose = await rl.question('Purpose (default login): ');
+  return sendOtp({ phone, otp, appName: appName || undefined, purpose: purpose || undefined });
+}
+
+async function menuSendMessage(rl) {
+  const phone = await askRequired(rl, 'Phone: ');
+  const useTemplate = await yesNo(rl, 'Use a named template?');
+  if (useTemplate) {
+    const template = await askRequired(rl, 'Template name: ');
+    const purpose = await rl.question('Purpose/routing key (optional): ');
+    const variables = await askVariables(rl);
+    return sendMessage({ phone, template, purpose: purpose || template, var: variables });
+  }
+  const text = await askRequired(rl, 'Message text: ');
+  const purpose = await rl.question('Purpose/routing key (default test): ');
+  return sendMessage({ phone, text, purpose: purpose || undefined });
+}
+
+async function menuDefaults(rl) {
+  console.log('\n1. Run setup\n2. Save URL\n3. Save API key\n4. Save output mode\n5. Save QR mode\n6. Show defaults\n');
+  const choice = (await rl.question('Choose: ')).trim();
+  if (choice === '1') {
+    const url = await rl.question('Gateway URL (optional): ');
+    const key = await rl.question('API key (optional): ');
+    return setup({ url: url || undefined, key: key || undefined });
+  }
+  if (choice === '2') return setDefaults({ url: await askRequired(rl, 'Gateway URL: ') });
+  if (choice === '3') return setDefaults({ key: await askRequired(rl, 'API key: ') });
+  if (choice === '4') return setDefaults({ output: await askRequired(rl, 'Output mode (json/table): ') });
+  if (choice === '5') return setDefaults({ qrMode: await askRequired(rl, 'QR mode (url/json/open/save): ') });
+  if (choice === '6') return printJson(redact(defaults));
+  printError('Unknown defaults option.');
+}
+
+async function askRequired(rl, question) {
+  const value = (await rl.question(question)).trim();
+  if (!value) throw new Error('Value is required.');
+  return value;
+}
+
+async function yesNo(rl, question) {
+  const value = (await rl.question(`${question} (y/N): `)).trim().toLowerCase();
+  return value === 'y' || value === 'yes';
+}
+
+async function askVariables(rl) {
+  const variables = [];
+  while (true) {
+    const pair = (await rl.question('Variable key=value (blank when done): ')).trim();
+    if (!pair) return variables;
+    variables.push(pair);
+  }
 }
 
 async function setup(args) {
@@ -367,7 +510,8 @@ function printHelp() {
 WhatsApp OTP Gateway CLI
 
 Usage:
-  npm run gateway -- <command> [options]
+  npm run gateway                         Launch interactive menu
+  npm run gateway -- <command> [options]  Run a command directly
 
 Persistent defaults:
   setup [--url <url>] [--key <key>]      Create .env, gateway.config.json, and CLI defaults
@@ -388,6 +532,7 @@ Connection options:
   --output json                          Print raw JSON
 
 Commands:
+  menu
   health
   sessions
   config

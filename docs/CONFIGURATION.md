@@ -141,6 +141,12 @@ curl -X POST http://localhost:3030/api/config/reload \
 Create, scan, replace, or delete sessions from the CLI:
 
 ```bash
+npm run gateway
+```
+
+Or use direct commands:
+
+```bash
 npm run gateway -- create-session --id otp-1 --label "Primary OTP" --priority 1
 npm run gateway -- start-session --id otp-1
 npm run gateway -- qr --id otp-1 --mode open
