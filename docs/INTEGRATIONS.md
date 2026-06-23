@@ -147,6 +147,17 @@ Use an HTTP Request node:
 
 ## Curl Smoke Tests
 
+The CLI can store your default URL and key:
+
+```bash
+npm run gateway -- setup --url https://wa.example.com --key YOUR_API_KEY
+npm run gateway -- sessions
+npm run gateway -- qr --id otp-1 --mode open
+npm run gateway -- replace-session --id otp-1
+```
+
+Equivalent curl tests:
+
 ```bash
 curl https://wa.example.com/health
 ```

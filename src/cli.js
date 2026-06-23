@@ -1,25 +1,38 @@
 #!/usr/bin/env node
 import 'dotenv/config';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-const commands = {
-  health: { method: 'GET', path: '/health', auth: false },
-  sessions: { method: 'GET', path: '/api/sessions', auth: true },
-  config: { method: 'GET', path: '/api/config', auth: true },
-  reloadConfig: { method: 'POST', path: '/api/config/reload', auth: true },
-};
+import { readJson, writeJson } from './utils/files.js';
+
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const cliConfigPath = path.join(rootDir, 'data', 'cli-config.json');
+const envPath = path.join(rootDir, '.env');
+const gatewayConfigPath = path.join(rootDir, 'gateway.config.json');
+const gatewayConfigExamplePath = path.join(rootDir, 'gateway.config.example.json');
+const envExamplePath = path.join(rootDir, '.env.example');
 
 const aliases = {
   'reload-config': 'reloadConfig',
   'create-session': 'createSession',
   'start-session': 'startSession',
   'logout-session': 'logoutSession',
+  'delete-session': 'deleteSession',
+  'replace-session': 'replaceSession',
+  'refresh-qr': 'refreshQr',
   'send-otp': 'sendOtp',
   'send-message': 'sendMessage',
+  'env-set': 'envSet',
+  'config-set': 'configSet',
+  'show-defaults': 'showDefaults',
 };
 
 const [rawCommand = 'help', ...rawArgs] = process.argv.slice(2);
 const command = aliases[rawCommand] || rawCommand;
 const args = parseArgs(rawArgs);
+const defaults = await readJson(cliConfigPath, {});
 
 try {
   await run(command, args);
@@ -30,8 +43,74 @@ try {
 
 async function run(name, args) {
   if (name === 'help' || args.help) return printHelp();
-  if (name === 'createSession') {
-    return request({
+  if (name === 'setup') return setup(args);
+  if (name === 'set') return setDefaults(args);
+  if (name === 'showDefaults') return printJson(redact(defaults));
+  if (name === 'envSet') return envSet(args);
+  if (name === 'configSet') return configSet(args);
+  if (name === 'health') return request({ method: 'GET', path: '/health', auth: false }, args);
+  if (name === 'sessions') return request({ method: 'GET', path: '/api/sessions' }, args);
+  if (name === 'config') return request({ method: 'GET', path: '/api/config' }, args);
+  if (name === 'reloadConfig') return request({ method: 'POST', path: '/api/config/reload' }, args);
+  if (name === 'createSession') return createSession(args);
+  if (name === 'startSession') return request({ method: 'POST', path: `/api/sessions/${requireArg(args, 'id')}/start` }, args);
+  if (name === 'logoutSession') return request({ method: 'POST', path: `/api/sessions/${requireArg(args, 'id')}/logout` }, args);
+  if (name === 'deleteSession') return deleteSession(args);
+  if (name === 'replaceSession') return replaceSession(args);
+  if (name === 'refreshQr') return request({ method: 'POST', path: `/api/sessions/${requireArg(args, 'id')}/refresh-qr` }, args);
+  if (name === 'qr') return qr(args);
+  if (name === 'sendOtp') return sendOtp(args);
+  if (name === 'sendMessage') return sendMessage(args);
+  throw new Error(`Unknown command '${name}'. Run: npm run gateway -- help`);
+}
+
+async function setup(args) {
+  await copyIfMissing(envExamplePath, envPath);
+  await copyIfMissing(gatewayConfigExamplePath, gatewayConfigPath);
+  const nextDefaults = {
+    ...defaults,
+    url: args.url || defaults.url || `http://localhost:${process.env.PORT || 3030}`,
+  };
+  if (args.key) nextDefaults.key = args.key;
+  if (args.output) nextDefaults.output = args.output;
+  if (args.qrMode) nextDefaults.qrMode = args.qrMode;
+  await writeJson(cliConfigPath, nextDefaults);
+  printInfo('Setup complete. Created missing .env, gateway.config.json, and data/cli-config.json files.');
+  printJson(redact(nextDefaults));
+}
+
+async function setDefaults(args) {
+  const nextDefaults = { ...defaults };
+  if (args.url) nextDefaults.url = args.url.replace(/\/$/, '');
+  if (args.key) nextDefaults.key = args.key;
+  if (args.output) nextDefaults.output = args.output;
+  if (args.qrMode) nextDefaults.qrMode = args.qrMode;
+  await writeJson(cliConfigPath, nextDefaults);
+  printInfo('Saved CLI defaults.');
+  printJson(redact(nextDefaults));
+}
+
+async function envSet(args) {
+  const key = requireArg(args, 'key').toUpperCase();
+  const value = requireArg(args, 'value');
+  const current = await readEnvFile(envPath);
+  current.set(key, value);
+  await writeEnvFile(envPath, current);
+  printInfo(`Updated .env value ${key}.`);
+}
+
+async function configSet(args) {
+  const key = requireArg(args, 'key');
+  const value = parseValue(requireArg(args, 'value'));
+  const current = await readJson(gatewayConfigPath, await readJson(gatewayConfigExamplePath, {}));
+  setDeep(current, key, value);
+  await writeJson(gatewayConfigPath, current);
+  printInfo(`Updated gateway.config.json path ${key}.`);
+}
+
+async function createSession(args) {
+  return request(
+    {
       method: 'POST',
       path: '/api/sessions',
       body: {
@@ -40,23 +119,66 @@ async function run(name, args) {
         priority: args.priority ? Number(args.priority) : undefined,
         enabled: args.enabled == null ? undefined : args.enabled !== 'false',
       },
-    });
+    },
+    args,
+  );
+}
+
+async function deleteSession(args) {
+  const id = requireArg(args, 'id');
+  const logout = args.logout === 'true' || args.logout === true;
+  return request({ method: 'DELETE', path: `/api/sessions/${id}${logout ? '?logout=true' : ''}` }, args);
+}
+
+async function replaceSession(args) {
+  return request(
+    {
+      method: 'POST',
+      path: `/api/sessions/${requireArg(args, 'id')}/replace`,
+      body: {
+        label: args.label,
+        priority: args.priority ? Number(args.priority) : undefined,
+        enabled: args.enabled == null ? undefined : args.enabled !== 'false',
+      },
+    },
+    args,
+  );
+}
+
+async function qr(args) {
+  const id = requireArg(args, 'id');
+  const mode = args.mode || defaults.qrMode || 'url';
+  const baseUrl = getBaseUrl(args);
+  const key = getApiKey(args);
+  const refresh = args.refresh !== 'false';
+  const url = `${baseUrl}/api/sessions/${id}/qr.png?apiKey=${encodeURIComponent(key)}${refresh ? '&refresh=true' : ''}`;
+
+  if (mode === 'json') {
+    return request({ method: 'GET', path: `/api/sessions/${id}/qr${refresh ? '?refresh=true' : ''}` }, args);
   }
-  if (name === 'startSession') {
-    return request({ method: 'POST', path: `/api/sessions/${requireArg(args, 'id')}/start` });
-  }
-  if (name === 'logoutSession') {
-    return request({ method: 'POST', path: `/api/sessions/${requireArg(args, 'id')}/logout` });
-  }
-  if (name === 'qr') {
-    const id = requireArg(args, 'id');
-    const baseUrl = getBaseUrl(args);
-    printInfo(`Open this URL to scan the QR for '${id}':`);
-    console.log(`${baseUrl}/api/sessions/${id}/qr.png?apiKey=${encodeURIComponent(getApiKey(args))}`);
+
+  if (mode === 'save') {
+    const outFile = args.out || path.join(rootDir, 'data', `${id}-qr.png`);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(await response.text());
+    await fs.writeFile(outFile, Buffer.from(await response.arrayBuffer()));
+    printInfo(`Saved QR image to ${outFile}`);
     return;
   }
-  if (name === 'sendOtp') {
-    return request({
+
+  if (mode === 'open') {
+    await openUrl(url);
+    printInfo(`Opened QR for '${id}' in your browser.`);
+    return;
+  }
+
+  printInfo(`QR URL for '${id}':`);
+  console.log(url);
+}
+
+async function sendOtp(args) {
+  return request(
+    {
       method: 'POST',
       path: '/api/send-otp',
       body: {
@@ -67,10 +189,14 @@ async function run(name, args) {
         template: args.template,
         variables: parseVariables(args.var),
       },
-    });
-  }
-  if (name === 'sendMessage') {
-    return request({
+    },
+    args,
+  );
+}
+
+async function sendMessage(args) {
+  return request(
+    {
       method: 'POST',
       path: '/api/send-message',
       body: {
@@ -80,19 +206,17 @@ async function run(name, args) {
         purpose: args.purpose,
         variables: parseVariables(args.var),
       },
-    });
-  }
-  const simple = commands[name];
-  if (simple) return request(simple);
-  throw new Error(`Unknown command '${name}'. Run: npm run gateway -- help`);
+    },
+    args,
+  );
 }
 
-async function request({ method, path, auth = true, body }) {
+async function request({ method, path: requestPath, auth = true, body }, args) {
   const baseUrl = getBaseUrl(args);
   const headers = {};
   if (auth) headers['X-API-Key'] = getApiKey(args);
   if (body) headers['Content-Type'] = 'application/json';
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await fetch(`${baseUrl}${requestPath}`, {
     method,
     headers,
     body: body ? JSON.stringify(compact(body)) : undefined,
@@ -100,7 +224,7 @@ async function request({ method, path, auth = true, body }) {
   const text = await response.text();
   const data = text ? JSON.parse(text) : {};
   if (!response.ok) throw new Error(data.error || text || `HTTP ${response.status}`);
-  printResponse(data);
+  printResponse(data, args);
 }
 
 function parseArgs(values) {
@@ -119,12 +243,12 @@ function parseArgs(values) {
 }
 
 function getBaseUrl(args) {
-  return (args.url || process.env.GATEWAY_URL || `http://localhost:${process.env.PORT || 3030}`).replace(/\/$/, '');
+  return (args.url || defaults.url || process.env.GATEWAY_URL || `http://localhost:${process.env.PORT || 3030}`).replace(/\/$/, '');
 }
 
 function getApiKey(args) {
-  const key = args.key || process.env.API_KEY;
-  if (!key) throw new Error('Missing API key. Set API_KEY or pass --key.');
+  const key = args.key || defaults.key || process.env.API_KEY;
+  if (!key) throw new Error('Missing API key. Set API_KEY, pass --key, or run: npm run gateway -- set --key YOUR_KEY');
   return key;
 }
 
@@ -144,14 +268,81 @@ function parseVariables(input) {
   return output;
 }
 
+function parseValue(value) {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  if (value === 'null') return null;
+  if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value);
+  if ((value.startsWith('[') && value.endsWith(']')) || (value.startsWith('{') && value.endsWith('}'))) {
+    return JSON.parse(value);
+  }
+  return value;
+}
+
+function setDeep(target, dottedPath, value) {
+  const parts = dottedPath.split('.');
+  let cursor = target;
+  for (const part of parts.slice(0, -1)) {
+    if (!cursor[part] || typeof cursor[part] !== 'object') cursor[part] = {};
+    cursor = cursor[part];
+  }
+  cursor[parts.at(-1)] = value;
+}
+
+async function readEnvFile(filePath) {
+  const raw = await readText(filePath, '');
+  const map = new Map();
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line || line.trim().startsWith('#') || !line.includes('=')) continue;
+    const index = line.indexOf('=');
+    map.set(line.slice(0, index), line.slice(index + 1));
+  }
+  return map;
+}
+
+async function writeEnvFile(filePath, map) {
+  const lines = [...map.entries()].map(([key, value]) => `${key}=${value}`);
+  await fs.writeFile(filePath, `${lines.join('\n')}\n`, 'utf8');
+}
+
+async function readText(filePath, fallback) {
+  try {
+    return await fs.readFile(filePath, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return fallback;
+    throw error;
+  }
+}
+
+async function copyIfMissing(from, to) {
+  try {
+    await fs.access(to);
+  } catch {
+    await fs.copyFile(from, to);
+  }
+}
+
+async function openUrl(url) {
+  const command = process.platform === 'win32' ? 'cmd' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+  const commandArgs = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
+  const child = spawn(command, commandArgs, { detached: true, stdio: 'ignore' });
+  child.unref();
+}
+
 function compact(value) {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
 }
 
-function printResponse(data) {
+function redact(value) {
+  return { ...value, key: value.key ? '<set>' : undefined };
+}
+
+function printResponse(data, args) {
+  const output = args.output || defaults.output;
+  if (output === 'json') return printJson(data);
   if (Array.isArray(data.sessions)) return printSessions(data.sessions);
   if (data.session) return printSessions([data.session]);
-  console.log(JSON.stringify(data, null, 2));
+  printJson(data);
 }
 
 function printSessions(sessions) {
@@ -167,6 +358,10 @@ function printSessions(sessions) {
   console.table(rows);
 }
 
+function printJson(data) {
+  console.log(JSON.stringify(data, null, 2));
+}
+
 function printHelp() {
   console.log(`
 WhatsApp OTP Gateway CLI
@@ -174,9 +369,23 @@ WhatsApp OTP Gateway CLI
 Usage:
   npm run gateway -- <command> [options]
 
-Connection:
-  --url <url>       Gateway URL (default: GATEWAY_URL or localhost)
-  --key <key>       API key (default: API_KEY)
+Persistent defaults:
+  setup [--url <url>] [--key <key>]      Create .env, gateway.config.json, and CLI defaults
+  set --url <url>                        Save default gateway URL
+  set --key <key>                        Save default API key locally
+  set --output json                      Save default output mode
+  set --qrMode open                      Save default QR mode
+  show-defaults                          Show saved CLI defaults
+
+Local file helpers:
+  env-set --key PORT --value 3030
+  config-set --key phone.countryPolicy --value none
+  config-set --key phone.allowedCountryCodes --value '["92","1"]'
+
+Connection options:
+  --url <url>                            Override gateway URL
+  --key <key>                            Override API key
+  --output json                          Print raw JSON
 
 Commands:
   health
@@ -186,15 +395,23 @@ Commands:
   create-session --id otp-1 --label "OTP Sender 1" --priority 1
   start-session --id otp-1
   logout-session --id otp-1
-  qr --id otp-1
+  delete-session --id otp-1 [--logout true]
+  replace-session --id otp-1
+  refresh-qr --id otp-1
+  qr --id otp-1 [--mode url|json|open|save] [--refresh true|false] [--out ./qr.png]
   send-otp --phone +923001234567 --otp 482913 --appName "Example App"
   send-message --phone +923001234567 --text "Hello"
   send-message --phone +923001234567 --template welcome --var name=Alyan
 
 Examples:
-  npm run gateway -- sessions
-  npm run gateway -- qr --id otp-1
-  npm run gateway -- send-otp --phone +923001234567 --otp 482913 --appName "Example App"
+  npm run gateway -- setup --url https://wa.example.com --key YOUR_API_KEY
+  npm run gateway -- create-session --id otp-1 --label "Primary OTP" --priority 1
+  npm run gateway -- start-session --id otp-1
+  npm run gateway -- qr --id otp-1 --mode open
+  npm run gateway -- replace-session --id otp-1
+  npm run gateway -- delete-session --id otp-1 --logout true
+  npm run gateway -- config-set --key phone.countryPolicy --value none
+  npm run gateway -- reload-config
 `);
 }
 

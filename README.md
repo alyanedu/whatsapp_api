@@ -20,6 +20,7 @@ It is designed for teams that need a simple transactional WhatsApp sender for ve
 - Routing strategies: `priority`, `sequential`, or `random`.
 - Per-message-type routing, such as OTP through one session group and notifications through another.
 - Built-in CLI for session management, QR links, config reloads, and test sends.
+- Persistent CLI defaults in `data/cli-config.json` for URL, API key, output mode, and QR behavior.
 - Request rate limiting.
 - File-based masked message logs.
 - PM2 config for low-memory Ubuntu hosts.
@@ -56,7 +57,9 @@ The following files are credentials or private runtime data. Never commit or sha
 
 ```text
 .env
+gateway.config.json
 sessions/
+data/cli-config.json
 data/sessions.json
 data/message-log.json
 data/*.png
@@ -70,6 +73,12 @@ They are ignored by `.gitignore` by default. If they ever become public, unlink 
 npm install
 cp .env.example .env
 cp gateway.config.example.json gateway.config.json
+```
+
+Or let the CLI create missing local files:
+
+```bash
+npm run gateway -- setup --url http://localhost:3030
 ```
 
 Edit `.env` and set a long random API key:
@@ -110,6 +119,45 @@ CLI:
 npm run gateway -- create-session --id otp-1 --label "OTP Sender 1" --priority 1
 npm run gateway -- start-session --id otp-1
 npm run gateway -- qr --id otp-1
+```
+
+QR modes:
+
+```bash
+npm run gateway -- qr --id otp-1 --mode url
+npm run gateway -- qr --id otp-1 --mode json
+npm run gateway -- qr --id otp-1 --mode open
+npm run gateway -- qr --id otp-1 --mode save --out ./otp-1-qr.png
+npm run gateway -- refresh-qr --id otp-1
+```
+
+By default, `qr` requests use `refresh=true`, so an expired or missing QR is regenerated when the session is not connected. Use `--refresh false` to only read the currently cached QR.
+
+## Replace Or Delete A Session
+
+Replace a session when you want to discard the old local WhatsApp auth files and scan a fresh QR for the same session id:
+
+```bash
+npm run gateway -- replace-session --id otp-1
+npm run gateway -- qr --id otp-1 --mode open
+```
+
+Delete a session from the gateway and remove its local auth folder:
+
+```bash
+npm run gateway -- delete-session --id otp-1
+```
+
+Ask WhatsApp to unlink/logout before deleting local files:
+
+```bash
+npm run gateway -- delete-session --id otp-1 --logout true
+```
+
+If logout fails because the socket is already closed, remove the linked device manually from the sender phone:
+
+```text
+WhatsApp -> Linked devices -> select device -> Log out
 ```
 
 Curl:
@@ -345,6 +393,39 @@ curl -X POST http://localhost:3030/api/config/reload \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
+## CLI Defaults And Local Editing
+
+The CLI can remember connection defaults in ignored `data/cli-config.json`:
+
+```bash
+npm run gateway -- set --url https://wa.example.com
+npm run gateway -- set --key YOUR_API_KEY
+npm run gateway -- set --output json
+npm run gateway -- set --qrMode open
+npm run gateway -- show-defaults
+```
+
+Edit `.env` values from the CLI:
+
+```bash
+npm run gateway -- env-set --key PORT --value 3030
+npm run gateway -- env-set --key HOST --value 127.0.0.1
+```
+
+Edit `gateway.config.json` values from the CLI:
+
+```bash
+npm run gateway -- config-set --key phone.countryPolicy --value none
+npm run gateway -- config-set --key phone.allowedCountryCodes --value '["92","1","44"]'
+npm run gateway -- config-set --key routing.defaultStrategy --value sequential
+```
+
+After editing `gateway.config.json`, reload it:
+
+```bash
+npm run gateway -- reload-config
+```
+
 ## Templates And Variables
 
 Templates live in `gateway.config.json` and use `{{variable}}` placeholders.
@@ -466,7 +547,10 @@ Protected with `X-API-Key`:
 - `GET /api/sessions`
 - `POST /api/sessions`
 - `PATCH /api/sessions/:id`
+- `DELETE /api/sessions/:id`
 - `POST /api/sessions/:id/start`
+- `POST /api/sessions/:id/replace`
+- `POST /api/sessions/:id/refresh-qr`
 - `POST /api/sessions/start-all`
 - `POST /api/sessions/:id/logout`
 - `GET /api/sessions/:id/qr`

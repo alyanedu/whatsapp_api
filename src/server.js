@@ -99,9 +99,41 @@ protectedRouter.patch('/sessions/:id', async (req, res, next) => {
   }
 });
 
+protectedRouter.delete('/sessions/:id', async (req, res, next) => {
+  try {
+    const result = await sessionManager.delete(req.params.id, { logout: req.query.logout === 'true' });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    next(error);
+  }
+});
+
 protectedRouter.post('/sessions/:id/start', async (req, res, next) => {
   try {
     const session = await sessionManager.start(req.params.id);
+    res.json({ success: true, session });
+  } catch (error) {
+    next(error);
+  }
+});
+
+protectedRouter.post('/sessions/:id/replace', async (req, res, next) => {
+  try {
+    const schema = z.object({
+      label: z.string().max(80).optional(),
+      priority: z.number().int().optional(),
+      enabled: z.boolean().optional(),
+    });
+    const session = await sessionManager.replace(req.params.id, schema.parse(req.body ?? {}));
+    res.json({ success: true, session });
+  } catch (error) {
+    next(error);
+  }
+});
+
+protectedRouter.post('/sessions/:id/refresh-qr', async (req, res, next) => {
+  try {
+    const session = await sessionManager.refreshQr(req.params.id);
     res.json({ success: true, session });
   } catch (error) {
     next(error);
@@ -124,7 +156,9 @@ protectedRouter.post('/sessions/:id/logout', async (req, res, next) => {
 
 protectedRouter.get('/sessions/:id/qr', async (req, res, next) => {
   try {
-    const qr = await sessionManager.getQr(req.params.id);
+    const qr = req.query.refresh === 'true'
+      ? await sessionManager.getQrOrRefresh(req.params.id)
+      : await sessionManager.getQr(req.params.id);
     if (!qr) return res.status(404).json({ success: false, error: 'QR code is not available.' });
     return res.json({ success: true, ...qr });
   } catch (error) {
@@ -134,7 +168,9 @@ protectedRouter.get('/sessions/:id/qr', async (req, res, next) => {
 
 protectedRouter.get('/sessions/:id/qr.png', async (req, res, next) => {
   try {
-    const qrPng = await sessionManager.getQrPng(req.params.id);
+    const qrPng = req.query.refresh === 'true'
+      ? await sessionManager.getQrPngOrRefresh(req.params.id)
+      : await sessionManager.getQrPng(req.params.id);
     if (!qrPng) return res.status(404).json({ success: false, error: 'QR code is not available.' });
     res.type('png');
     return res.send(qrPng);

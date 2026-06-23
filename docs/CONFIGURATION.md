@@ -14,6 +14,8 @@ cp gateway.config.example.json gateway.config.json
 
 `gateway.config.json` is ignored by git because it may contain business-specific routing or message wording.
 
+The CLI also stores local defaults in `data/cli-config.json`, which is ignored by git because it may contain your gateway URL or API key.
+
 ## Phone Country Rules
 
 Country codes are dial codes without `+`.
@@ -133,6 +135,21 @@ or:
 curl -X POST http://localhost:3030/api/config/reload \
   -H "X-API-Key: YOUR_API_KEY"
 ```
+
+## CLI Session Lifecycle
+
+Create, scan, replace, or delete sessions from the CLI:
+
+```bash
+npm run gateway -- create-session --id otp-1 --label "Primary OTP" --priority 1
+npm run gateway -- start-session --id otp-1
+npm run gateway -- qr --id otp-1 --mode open
+npm run gateway -- refresh-qr --id otp-1
+npm run gateway -- replace-session --id otp-1
+npm run gateway -- delete-session --id otp-1 --logout true
+```
+
+Use `replace-session` when a session becomes stale or you want to re-link the same sender slot with a new QR code.
 
 ## Example: Worldwide OTP Gateway
 

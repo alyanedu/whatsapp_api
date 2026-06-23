@@ -10,7 +10,9 @@ Never commit, upload, or share:
 
 ```text
 .env
+gateway.config.json
 sessions/
+data/cli-config.json
 data/sessions.json
 data/message-log.json
 data/*.png

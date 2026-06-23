@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
@@ -126,6 +127,47 @@ export class SessionManager {
     return this.#publicSession(session);
   }
 
+  async delete(id, options = {}) {
+    const session = this.#requireSession(id);
+    await this.#closeSocket(session, options.logout === true).catch((error) => {
+      logger.warn({ sessionId: id, error: error.message }, 'Socket close failed during delete');
+    });
+    this.sessions.delete(id);
+    await fs.rm(path.join(config.sessionsDir, id), { recursive: true, force: true });
+    await this.#saveSessionConfigs();
+    return { id, deleted: true };
+  }
+
+  async replace(id, patch = {}) {
+    const session = this.#requireSession(id);
+    const next = {
+      id: session.id,
+      label: patch.label ?? session.label,
+      priority: patch.priority ?? session.priority,
+      enabled: patch.enabled ?? session.enabled,
+    };
+    await this.#closeSocket(session, true).catch((error) => {
+      logger.warn({ sessionId: id, error: error.message }, 'Logout during replace failed; deleting local session anyway');
+    });
+    await fs.rm(path.join(config.sessionsDir, id), { recursive: true, force: true });
+    const fresh = this.#createState(next);
+    this.sessions.set(id, fresh);
+    await this.#saveSessionConfigs();
+    return this.start(id);
+  }
+
+  async refreshQr(id) {
+    const session = this.#requireSession(id);
+    if (session.status === 'connected') {
+      throw new Error('Session is already connected; QR code is not available.');
+    }
+    if (!session.qr && !session.starting) {
+      await this.start(id);
+    }
+    const qrSession = await this.#waitForQr(id, 10000);
+    return this.#publicSession(qrSession);
+  }
+
   async getQr(id) {
     const session = this.#requireSession(id);
     if (!session.qr) return null;
@@ -144,6 +186,22 @@ export class SessionManager {
       margin: 2,
       errorCorrectionLevel: 'M',
     });
+  }
+
+  async getQrOrRefresh(id) {
+    const session = this.#requireSession(id);
+    if (!session.qr && session.status !== 'connected') {
+      await this.refreshQr(id);
+    }
+    return this.getQr(id);
+  }
+
+  async getQrPngOrRefresh(id) {
+    const session = this.#requireSession(id);
+    if (!session.qr && session.status !== 'connected') {
+      await this.refreshQr(id);
+    }
+    return this.getQrPng(id);
   }
 
   async sendWithFailover({ jid, text, messageType = 'message', route }) {
@@ -285,6 +343,27 @@ export class SessionManager {
     if (!session.reconnectTimer) return;
     clearTimeout(session.reconnectTimer);
     session.reconnectTimer = null;
+  }
+
+  async #closeSocket(session, logout = false) {
+    this.#clearReconnectTimer(session);
+    const socket = session.socket;
+    session.socket = null;
+    session.qr = null;
+    session.starting = false;
+    if (socket && logout) await socket.logout();
+    else if (socket?.end) socket.end(undefined);
+  }
+
+  async #waitForQr(id, timeoutMs) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const session = this.#requireSession(id);
+      if (session.qr) return session;
+      if (session.status === 'connected') throw new Error('Session connected before QR was generated.');
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error('Timed out waiting for QR code. Try refresh-qr again.');
   }
 
   #recordFailure(session, error) {
