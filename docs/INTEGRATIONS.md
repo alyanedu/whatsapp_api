@@ -108,6 +108,25 @@ Safety rules for agent/MCP use:
 - Keep audit logs masked.
 - Never return `API_KEY`, session file content, QR raw strings, or logs with full phone numbers to the agent.
 
+## Template-Based Sends
+
+For reusable workflows, prefer named templates from `gateway.config.json`:
+
+```json
+{
+  "phone": "+923001234567",
+  "template": "order_update",
+  "purpose": "order_update",
+  "variables": {
+    "name": "Alyan",
+    "orderNumber": "1001",
+    "status": "dispatched"
+  }
+}
+```
+
+The `purpose` field also controls per-type routing if configured in `routing.perType`.
+
 ## n8n Or Workflow Tools
 
 Use an HTTP Request node:

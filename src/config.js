@@ -26,6 +26,7 @@ export const config = {
   host: process.env.HOST || '0.0.0.0',
   nodeEnv: process.env.NODE_ENV || 'development',
   apiKey: process.env.API_KEY || '',
+  gatewayConfigPath: process.env.GATEWAY_CONFIG || './gateway.config.json',
   sessionsDir: resolveFromRoot(process.env.SESSIONS_DIR || './sessions'),
   dataDir: resolveFromRoot(process.env.DATA_DIR || './data'),
   pakistanOnly: boolEnv('PAKISTAN_ONLY', true),

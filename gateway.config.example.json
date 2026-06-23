@@ -1,0 +1,33 @@
+{
+  "phone": {
+    "defaultCountryCode": "92",
+    "countryPolicy": "allow",
+    "allowedCountryCodes": ["92"],
+    "blockedCountryCodes": []
+  },
+  "routing": {
+    "defaultStrategy": "priority",
+    "perType": {
+      "otp": {
+        "strategy": "priority",
+        "sessions": []
+      },
+      "message": {
+        "strategy": "priority",
+        "sessions": []
+      }
+    }
+  },
+  "variables": {
+    "appName": "Example App",
+    "supportName": "Support"
+  },
+  "templates": {
+    "otp": "Your {{appName}} verification code is {{otp}}.\n\nThis code expires in {{expiryMinutes}} minutes. Do not share it with anyone.",
+    "messages": {
+      "test": "Test message from {{appName}}.",
+      "welcome": "Hi {{name}}, welcome to {{appName}}.",
+      "order_update": "Hi {{name}}, your order {{orderNumber}} is now {{status}}."
+    }
+  }
+}

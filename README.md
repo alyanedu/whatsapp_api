@@ -15,6 +15,11 @@ It is designed for teams that need a simple transactional WhatsApp sender for ve
 - QR login as JSON `dataUrl` or PNG image endpoint.
 - API-key authentication with `X-API-Key`.
 - Pakistan-only phone validation by default, configurable through `.env`.
+- Worldwide sending, allow-only country lists, or blocked-country lists through `gateway.config.json`.
+- Custom OTP and message templates with `{{variables}}`.
+- Routing strategies: `priority`, `sequential`, or `random`.
+- Per-message-type routing, such as OTP through one session group and notifications through another.
+- Built-in CLI for session management, QR links, config reloads, and test sends.
 - Request rate limiting.
 - File-based masked message logs.
 - PM2 config for low-memory Ubuntu hosts.
@@ -64,6 +69,7 @@ They are ignored by `.gitignore` by default. If they ever become public, unlink 
 ```bash
 npm install
 cp .env.example .env
+cp gateway.config.example.json gateway.config.json
 ```
 
 Edit `.env` and set a long random API key:
@@ -95,6 +101,18 @@ Expected response:
 ```
 
 ## Create A WhatsApp Session
+
+You can use curl or the built-in CLI.
+
+CLI:
+
+```bash
+npm run gateway -- create-session --id otp-1 --label "OTP Sender 1" --priority 1
+npm run gateway -- start-session --id otp-1
+npm run gateway -- qr --id otp-1
+```
+
+Curl:
 
 Create a session:
 
@@ -146,6 +164,14 @@ You want to see:
 
 ## Send OTP
 
+CLI:
+
+```bash
+npm run gateway -- send-otp --phone +923001234567 --otp 482913 --appName "Example App"
+```
+
+Curl:
+
 ```bash
 curl -X POST http://localhost:3030/api/send-otp \
   -H "Content-Type: application/json" \
@@ -164,6 +190,15 @@ This code expires in 5 minutes. Do not share it with anyone.
 ## Send A Manual Test Message
 
 Use this only for controlled testing or internal operational messages:
+
+CLI:
+
+```bash
+npm run gateway -- send-message --phone +923001234567 --text "Hello from the gateway."
+npm run gateway -- send-message --phone +923001234567 --template welcome --var name=Alyan
+```
+
+Curl:
 
 ```bash
 curl -X POST http://localhost:3030/api/send-message \
@@ -184,6 +219,29 @@ Example:
 ```
 
 If `otp-1` is disconnected or sending fails, the gateway tries `otp-2`.
+
+Configure routing in `gateway.config.json`:
+
+```json
+{
+  "routing": {
+    "defaultStrategy": "priority",
+    "perType": {
+      "otp": { "strategy": "priority", "sessions": ["otp-1", "otp-2"] },
+      "order_update": { "strategy": "sequential", "sessions": ["notify-1", "notify-2"] },
+      "announcement": { "strategy": "random", "sessions": ["notify-1", "notify-2"] }
+    }
+  }
+}
+```
+
+Strategies:
+
+- `priority`: always tries lower-priority sessions first.
+- `sequential`: rotates between available sessions for that message type.
+- `random`: shuffles available sessions for that message type.
+
+The `sessions` list is optional. If omitted or empty, all connected enabled sessions are eligible.
 
 Repeated send failures and reconnect failures are controlled by:
 
@@ -206,6 +264,8 @@ curl -X POST http://localhost:3030/api/sessions/otp-1/start \
 
 See `.env.example` for all options.
 
+For country rules, templates, variables, and routing recipes, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+
 Common production values:
 
 ```env
@@ -219,6 +279,105 @@ MAX_LOG_ENTRIES=200
 ```
 
 Set `PAKISTAN_ONLY=false` if you want to allow non-Pakistan numbers. You are responsible for validating numbers and complying with local rules.
+
+## Country Rules
+
+Use `gateway.config.json` for country allow/block rules. Country codes are dial codes without `+`.
+
+Pakistan only:
+
+```json
+{
+  "phone": {
+    "defaultCountryCode": "92",
+    "countryPolicy": "allow",
+    "allowedCountryCodes": ["92"],
+    "blockedCountryCodes": []
+  }
+}
+```
+
+Worldwide:
+
+```json
+{
+  "phone": {
+    "defaultCountryCode": "1",
+    "countryPolicy": "none",
+    "allowedCountryCodes": [],
+    "blockedCountryCodes": []
+  }
+}
+```
+
+Allow selected countries:
+
+```json
+{
+  "phone": {
+    "countryPolicy": "allow",
+    "allowedCountryCodes": ["1", "44", "92"]
+  }
+}
+```
+
+Block selected countries:
+
+```json
+{
+  "phone": {
+    "countryPolicy": "block",
+    "blockedCountryCodes": ["7", "98"]
+  }
+}
+```
+
+Reload config without restarting:
+
+```bash
+npm run gateway -- reload-config
+```
+
+or:
+
+```bash
+curl -X POST http://localhost:3030/api/config/reload \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+## Templates And Variables
+
+Templates live in `gateway.config.json` and use `{{variable}}` placeholders.
+
+```json
+{
+  "variables": {
+    "appName": "Example App",
+    "supportName": "Support"
+  },
+  "templates": {
+    "otp": "Your {{appName}} code is {{otp}}. It expires in {{expiryMinutes}} minutes.",
+    "messages": {
+      "welcome": "Hi {{name}}, welcome to {{appName}}.",
+      "order_update": "Hi {{name}}, your order {{orderNumber}} is now {{status}}."
+    }
+  }
+}
+```
+
+Send with a named template:
+
+```bash
+npm run gateway -- send-message \
+  --phone +923001234567 \
+  --template order_update \
+  --purpose order_update \
+  --var name=Alyan \
+  --var orderNumber=1001 \
+  --var status=dispatched
+```
+
+The gateway rejects sends when a template variable is missing, so users do not receive messages with raw `{{placeholders}}`.
 
 ## Production Deployment With PM2
 
@@ -302,6 +461,8 @@ Public:
 
 Protected with `X-API-Key`:
 
+- `GET /api/config`
+- `POST /api/config/reload`
 - `GET /api/sessions`
 - `POST /api/sessions`
 - `PATCH /api/sessions/:id`

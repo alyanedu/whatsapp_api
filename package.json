@@ -16,10 +16,14 @@
     "self-hosted",
     "api"
   ],
+  "bin": {
+    "whatsapp-otp-gateway": "src/cli.js"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "check": "node --check src/server.js && node --check src/session-manager.js && node --check src/otp-service.js && node --check src/config.js && node --check src/logger.js && node --check src/message-log.js && node --check src/middleware/api-key.js && node --check src/utils/files.js && node --check src/utils/phone.js"
+    "gateway": "node src/cli.js",
+    "check": "node --check src/server.js && node --check src/cli.js && node --check src/gateway-config.js && node --check src/template-service.js && node --check src/session-manager.js && node --check src/otp-service.js && node --check src/config.js && node --check src/logger.js && node --check src/message-log.js && node --check src/middleware/api-key.js && node --check src/utils/files.js && node --check src/utils/phone.js"
   },
   "engines": {
     "node": ">=20"

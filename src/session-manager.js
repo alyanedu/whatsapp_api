@@ -14,6 +14,7 @@ export class SessionManager {
   constructor() {
     this.sessionsFile = path.join(config.dataDir, 'sessions.json');
     this.sessions = new Map();
+    this.routeCursors = new Map();
   }
 
   async init() {
@@ -145,10 +146,8 @@ export class SessionManager {
     });
   }
 
-  async sendWithFailover({ jid, text }) {
-    const candidates = [...this.sessions.values()]
-      .filter((session) => session.enabled && session.status === 'connected' && !this.#isPaused(session))
-      .sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
+  async sendWithFailover({ jid, text, messageType = 'message', route }) {
+    const candidates = this.#selectCandidates(messageType, route);
 
     if (candidates.length === 0) {
       throw new Error('No connected WhatsApp sessions are available.');
@@ -169,6 +168,29 @@ export class SessionManager {
     }
 
     throw new Error(`All WhatsApp sessions failed: ${errors.join('; ')}`);
+  }
+
+  #selectCandidates(messageType, route = {}) {
+    const allowedSessionIds = new Set(route.sessions || []);
+    const baseCandidates = [...this.sessions.values()]
+      .filter((session) => session.enabled && session.status === 'connected' && !this.#isPaused(session))
+      .filter((session) => allowedSessionIds.size === 0 || allowedSessionIds.has(session.id));
+
+    const sorted = baseCandidates.sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
+    const strategy = route.strategy || 'priority';
+
+    if (strategy === 'random') {
+      return [...sorted].sort(() => Math.random() - 0.5);
+    }
+
+    if (strategy === 'sequential' && sorted.length > 1) {
+      const cursorKey = `${messageType}:${route.sessions?.join(',') || '*'}`;
+      const cursor = this.routeCursors.get(cursorKey) || 0;
+      this.routeCursors.set(cursorKey, (cursor + 1) % sorted.length);
+      return [...sorted.slice(cursor), ...sorted.slice(0, cursor)];
+    }
+
+    return sorted;
   }
 
   #createState(saved) {

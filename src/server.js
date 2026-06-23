@@ -9,6 +9,7 @@ import { apiKeyAuth } from './middleware/api-key.js';
 import { MessageLog } from './message-log.js';
 import { OtpService } from './otp-service.js';
 import { SessionManager } from './session-manager.js';
+import { GatewayConfigStore } from './gateway-config.js';
 
 assertConfig();
 
@@ -36,7 +37,9 @@ app.use(
 
 const sessionManager = new SessionManager();
 const messageLog = new MessageLog();
-const otpService = new OtpService({ sessionManager, messageLog });
+const gatewayConfig = new GatewayConfigStore();
+await gatewayConfig.load();
+const otpService = new OtpService({ sessionManager, messageLog, gatewayConfig });
 await sessionManager.init();
 
 const protectedRouter = express.Router();
@@ -52,6 +55,19 @@ app.get('/health', (req, res) => {
 
 protectedRouter.get('/sessions', (req, res) => {
   res.json({ success: true, sessions: sessionManager.list() });
+});
+
+protectedRouter.get('/config', (req, res) => {
+  res.json({ success: true, config: gatewayConfig.publicConfig() });
+});
+
+protectedRouter.post('/config/reload', async (req, res, next) => {
+  try {
+    const nextConfig = await gatewayConfig.load();
+    res.json({ success: true, config: nextConfig });
+  } catch (error) {
+    next(error);
+  }
 });
 
 protectedRouter.post('/sessions', async (req, res, next) => {
