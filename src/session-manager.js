@@ -56,9 +56,16 @@ export class SessionManager {
     return this.#publicSession(session);
   }
 
-  async start(id) {
+  async start(id, options = {}) {
+    const resetReconnect = options.resetReconnect !== false;
     const session = this.#requireSession(id);
     if (session.socket || session.starting) return this.#publicSession(session);
+
+    if (resetReconnect) {
+      this.#clearReconnectTimer(session);
+      session.reconnectAttempts = 0;
+      session.pausedUntil = null;
+    }
 
     session.starting = true;
     session.status = 'starting';
@@ -82,6 +89,7 @@ export class SessionManager {
       session.socket = socket;
       socket.ev.on('creds.update', saveCreds);
       socket.ev.on('connection.update', (update) => this.#onConnectionUpdate(session, update));
+      socket.ev.on('messaging-history.set', () => undefined);
       return this.#publicSession(session);
     } catch (error) {
       session.status = 'error';
@@ -108,6 +116,7 @@ export class SessionManager {
   async logout(id) {
     const session = this.#requireSession(id);
     if (session.socket) {
+      this.#clearReconnectTimer(session);
       await session.socket.logout();
       session.socket = null;
     }
@@ -179,6 +188,9 @@ export class SessionManager {
       lastError: null,
       failureCount: 0,
       pausedUntil: null,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+      autoReconnect: true,
     };
   }
 
@@ -192,6 +204,8 @@ export class SessionManager {
     if (update.connection === 'open') {
       session.status = 'connected';
       session.qr = null;
+      session.reconnectAttempts = 0;
+      session.pausedUntil = null;
       session.lastConnectedAt = new Date().toISOString();
       session.phone = session.socket?.user?.id || session.phone;
       logger.info({ sessionId: session.id, phone: session.phone }, 'WhatsApp session connected');
@@ -209,13 +223,46 @@ export class SessionManager {
       logger.warn({ sessionId: session.id, loggedOut, statusCode }, 'WhatsApp session closed');
 
       if (!loggedOut && session.enabled) {
-        setTimeout(() => {
-          this.start(session.id).catch((error) => {
-            logger.warn({ sessionId: session.id, error: error.message }, 'Reconnect failed');
-          });
-        }, 5000);
+        this.#scheduleReconnect(session);
       }
     }
+  }
+
+  #scheduleReconnect(session) {
+    if (session.reconnectTimer) return;
+    if (session.reconnectAttempts >= config.reconnectMaxAttempts) {
+      session.status = 'paused';
+      session.pausedUntil = new Date(Date.now() + config.sessionPauseSeconds * 1000).toISOString();
+      logger.warn(
+        { sessionId: session.id, pausedUntil: session.pausedUntil },
+        'Session paused after repeated reconnect failures',
+      );
+      return;
+    }
+
+    session.reconnectAttempts += 1;
+    const delaySeconds = Math.min(
+      config.reconnectMaxDelaySeconds,
+      config.reconnectBaseDelaySeconds * 2 ** (session.reconnectAttempts - 1),
+    );
+    logger.info(
+      { sessionId: session.id, attempt: session.reconnectAttempts, delaySeconds },
+      'Scheduling WhatsApp session reconnect',
+    );
+    session.reconnectTimer = setTimeout(() => {
+      session.reconnectTimer = null;
+      this.start(session.id, { resetReconnect: false }).catch((error) => {
+        session.lastError = error.message;
+        logger.warn({ sessionId: session.id, error: error.message }, 'Reconnect failed');
+        this.#scheduleReconnect(session);
+      });
+    }, delaySeconds * 1000);
+  }
+
+  #clearReconnectTimer(session) {
+    if (!session.reconnectTimer) return;
+    clearTimeout(session.reconnectTimer);
+    session.reconnectTimer = null;
   }
 
   #recordFailure(session, error) {
@@ -246,6 +293,7 @@ export class SessionManager {
       lastError: session.lastError,
       failureCount: session.failureCount,
       pausedUntil: session.pausedUntil,
+      reconnectAttempts: session.reconnectAttempts,
     };
   }
 

@@ -12,6 +12,15 @@ import { SessionManager } from './session-manager.js';
 
 assertConfig();
 
+process.on('uncaughtException', (error) => {
+  logger.error({ error: error.message, stack: error.stack }, 'Uncaught background error');
+});
+
+process.on('unhandledRejection', (reason) => {
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  logger.error({ error: error.message, stack: error.stack }, 'Unhandled background rejection');
+});
+
 const app = express();
 app.disable('x-powered-by');
 app.use(helmet());

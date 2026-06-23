@@ -94,7 +94,12 @@ Repeated failures temporarily pause that session using these `.env` values:
 ```env
 SESSION_FAILURE_LIMIT=3
 SESSION_PAUSE_SECONDS=300
+RECONNECT_BASE_DELAY_SECONDS=10
+RECONNECT_MAX_DELAY_SECONDS=300
+RECONNECT_MAX_ATTEMPTS=5
 ```
+
+If a session enters `paused`, call `POST /api/sessions/:id/start` after checking the phone's linked-device state.
 
 ## Moving From Windows To Ubuntu
 
