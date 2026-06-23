@@ -127,6 +127,7 @@ Protected with `X-API-Key`:
 - `POST /api/sessions/start-all`
 - `POST /api/sessions/:id/logout`
 - `GET /api/sessions/:id/qr`
+- `GET /api/sessions/:id/qr.png`
 - `POST /api/send-otp`
 - `GET /api/logs`
 

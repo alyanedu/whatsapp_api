@@ -107,6 +107,17 @@ protectedRouter.get('/sessions/:id/qr', async (req, res, next) => {
   }
 });
 
+protectedRouter.get('/sessions/:id/qr.png', async (req, res, next) => {
+  try {
+    const qrPng = await sessionManager.getQrPng(req.params.id);
+    if (!qrPng) return res.status(404).json({ success: false, error: 'QR code is not available.' });
+    res.type('png');
+    return res.send(qrPng);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 protectedRouter.post(
   '/send-otp',
   rateLimit({

@@ -126,6 +126,17 @@ export class SessionManager {
     };
   }
 
+  async getQrPng(id) {
+    const session = this.#requireSession(id);
+    if (!session.qr) return null;
+    return QRCode.toBuffer(session.qr, {
+      type: 'png',
+      width: 420,
+      margin: 2,
+      errorCorrectionLevel: 'M',
+    });
+  }
+
   async sendWithFailover({ jid, text }) {
     const candidates = [...this.sessions.values()]
       .filter((session) => session.enabled && session.status === 'connected' && !this.#isPaused(session))
