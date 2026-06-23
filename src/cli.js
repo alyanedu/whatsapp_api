@@ -15,6 +15,7 @@ const envPath = path.join(rootDir, '.env');
 const gatewayConfigPath = path.join(rootDir, 'gateway.config.json');
 const gatewayConfigExamplePath = path.join(rootDir, 'gateway.config.example.json');
 const envExamplePath = path.join(rootDir, '.env.example');
+const serverScriptPath = path.join(rootDir, 'src', 'server.js');
 
 const aliases = {
   'reload-config': 'reloadConfig',
@@ -29,6 +30,7 @@ const aliases = {
   'env-set': 'envSet',
   'config-set': 'configSet',
   'show-defaults': 'showDefaults',
+  'start-local': 'startLocal',
 };
 
 const [rawCommand = 'menu', ...rawArgs] = process.argv.slice(2);
@@ -51,6 +53,7 @@ async function run(name, args) {
   if (name === 'showDefaults') return printJson(redact(defaults));
   if (name === 'envSet') return envSet(args);
   if (name === 'configSet') return configSet(args);
+  if (name === 'startLocal') return startLocalServer();
   if (name === 'health') return request({ method: 'GET', path: '/health', auth: false }, args);
   if (name === 'sessions') return request({ method: 'GET', path: '/api/sessions' }, args);
   if (name === 'config') return request({ method: 'GET', path: '/api/config' }, args);
@@ -87,14 +90,15 @@ async function menu() {
         else if (choice === '10') await menuSendMessage(rl);
         else if (choice === '11') await request({ method: 'GET', path: '/api/config' }, { output: 'json' });
         else if (choice === '12') await request({ method: 'POST', path: '/api/config/reload' }, {});
-        else if (choice === '13') await menuDefaults(rl);
+        else if (choice === '13') await startLocalServer();
+        else if (choice === '14') await menuDefaults(rl);
         else if (choice === '0' || choice.toLowerCase() === 'q') exit = true;
         else printError('Unknown menu option.');
       } catch (error) {
         printError(error.message);
       }
 
-      if (!exit) await rl.question('\nPress Enter to continue...');
+      if (!exit) await pause(rl);
     }
   } finally {
     rl.close();
@@ -117,7 +121,8 @@ WhatsApp OTP Gateway
  10. Send message
  11. Show gateway config
  12. Reload gateway config
- 13. CLI setup/defaults
+ 13. Start local API server
+ 14. CLI setup/defaults
   0. Exit
 `);
 }
@@ -204,6 +209,14 @@ async function askVariables(rl) {
     const pair = (await rl.question('Variable key=value (blank when done): ')).trim();
     if (!pair) return variables;
     variables.push(pair);
+  }
+}
+
+async function pause(rl) {
+  try {
+    await rl.question('\nPress Enter to continue...');
+  } catch {
+    // stdin may be closed in piped/non-interactive runs.
   }
 }
 
@@ -359,11 +372,18 @@ async function request({ method, path: requestPath, auth = true, body }, args) {
   const headers = {};
   if (auth) headers['X-API-Key'] = getApiKey(args);
   if (body) headers['Content-Type'] = 'application/json';
-  const response = await fetch(`${baseUrl}${requestPath}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(compact(body)) : undefined,
-  });
+  let response;
+  try {
+    response = await fetch(`${baseUrl}${requestPath}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(compact(body)) : undefined,
+    });
+  } catch (error) {
+    throw new Error(
+      `Could not reach gateway at ${baseUrl}. Start the API with 'npm start', choose menu option 13, or set the correct URL with 'npm run gateway -- set --url <url>'. Original error: ${error.message}`,
+    );
+  }
   const text = await response.text();
   const data = text ? JSON.parse(text) : {};
   if (!response.ok) throw new Error(data.error || text || `HTTP ${response.status}`);
@@ -472,6 +492,18 @@ async function openUrl(url) {
   child.unref();
 }
 
+async function startLocalServer() {
+  const port = process.env.PORT || 3030;
+  const child = spawn(process.execPath, [serverScriptPath], {
+    cwd: rootDir,
+    detached: true,
+    stdio: 'ignore',
+    env: { ...process.env, NODE_ENV: process.env.NODE_ENV || 'production' },
+  });
+  child.unref();
+  printInfo(`Started local API server in the background on port ${port}.`);
+}
+
 function compact(value) {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
 }
@@ -533,6 +565,7 @@ Connection options:
 
 Commands:
   menu
+  start-local
   health
   sessions
   config
@@ -550,6 +583,7 @@ Commands:
 
 Examples:
   npm run gateway -- setup --url https://wa.example.com --key YOUR_API_KEY
+  npm run gateway -- start-local
   npm run gateway -- create-session --id otp-1 --label "Primary OTP" --priority 1
   npm run gateway -- start-session --id otp-1
   npm run gateway -- qr --id otp-1 --mode open

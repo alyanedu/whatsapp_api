@@ -121,6 +121,12 @@ npm run gateway
 
 The menu can create sessions, start sessions, open QR codes, replace/delete sessions, send OTPs, edit local config, and reload gateway config.
 
+If the API is not running, choose `Start local API server` from the menu or run:
+
+```bash
+npm run gateway -- start-local
+```
+
 CLI:
 
 ```bash

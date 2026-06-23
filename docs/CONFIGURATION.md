@@ -144,6 +144,12 @@ Create, scan, replace, or delete sessions from the CLI:
 npm run gateway
 ```
 
+If the menu says it cannot reach the gateway, start the local API server:
+
+```bash
+npm run gateway -- start-local
+```
+
 Or use direct commands:
 
 ```bash
