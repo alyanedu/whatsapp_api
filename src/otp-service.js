@@ -10,6 +10,12 @@ export const sendOtpSchema = z.object({
   appName: z.string().max(40).optional().default('TimberHub'),
 });
 
+export const sendMessageSchema = z.object({
+  phone: z.string().min(8),
+  text: z.string().min(1).max(1000),
+  purpose: z.string().max(40).optional().default('test'),
+});
+
 export class OtpService {
   constructor({ sessionManager, messageLog }) {
     this.sessionManager = sessionManager;
@@ -47,6 +53,45 @@ export class OtpService {
     } catch (error) {
       await this.messageLog.append({
         type: 'otp',
+        phoneMasked: maskPhone(phone.e164),
+        purpose: payload.purpose,
+        success: false,
+        error: error.message,
+      });
+      throw error;
+    }
+  }
+
+  async sendMessage(input) {
+    const payload = sendMessageSchema.parse(input);
+    const phone = normalizePhone(payload.phone, {
+      pakistanOnly: config.pakistanOnly,
+      defaultCountryCode: config.defaultCountryCode,
+    });
+
+    try {
+      const result = await this.sessionManager.sendWithFailover({
+        jid: phone.whatsappJid,
+        text: payload.text,
+      });
+      await this.messageLog.append({
+        type: 'message',
+        phoneMasked: maskPhone(phone.e164),
+        purpose: payload.purpose,
+        sessionId: result.sessionId,
+        success: true,
+        messageId: result.messageId,
+      });
+      return {
+        success: true,
+        phone: maskPhone(phone.e164),
+        sessionId: result.sessionId,
+        messageId: result.messageId,
+        sentAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      await this.messageLog.append({
+        type: 'message',
         phoneMasked: maskPhone(phone.e164),
         purpose: payload.purpose,
         success: false,

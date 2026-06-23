@@ -136,6 +136,15 @@ protectedRouter.post(
   },
 );
 
+protectedRouter.post('/send-message', async (req, res, next) => {
+  try {
+    const result = await otpService.sendMessage(req.body);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
 protectedRouter.get('/logs', async (req, res, next) => {
   try {
     const limit = Number.parseInt(req.query.limit || '100', 10);

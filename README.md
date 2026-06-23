@@ -129,6 +129,7 @@ Protected with `X-API-Key`:
 - `GET /api/sessions/:id/qr`
 - `GET /api/sessions/:id/qr.png`
 - `POST /api/send-otp`
+- `POST /api/send-message`
 - `GET /api/logs`
 
 ## GitHub
