@@ -15,6 +15,16 @@ function intEnv(name, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+function trustProxyEnv(name, fallback) {
+  const value = process.env[name];
+  if (value == null || value === '') return fallback;
+  const normalized = value.toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  const numberValue = Number.parseInt(value, 10);
+  return Number.isFinite(numberValue) ? numberValue : value;
+}
+
 function resolveFromRoot(value) {
   if (path.isAbsolute(value)) return value;
   return path.resolve(rootDir, value);
@@ -25,6 +35,7 @@ export const config = {
   port: intEnv('PORT', 3030),
   host: process.env.HOST || '0.0.0.0',
   nodeEnv: process.env.NODE_ENV || 'development',
+  trustProxy: trustProxyEnv('TRUST_PROXY', false),
   apiKey: process.env.API_KEY || '',
   gatewayConfigPath: process.env.GATEWAY_CONFIG || './gateway.config.json',
   sessionsDir: resolveFromRoot(process.env.SESSIONS_DIR || './sessions'),

@@ -24,6 +24,7 @@ process.on('unhandledRejection', (reason) => {
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', config.trustProxy);
 app.use(helmet());
 app.use(express.json({ limit: '64kb' }));
 app.use(

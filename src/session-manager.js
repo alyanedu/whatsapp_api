@@ -161,6 +161,9 @@ export class SessionManager {
     if (session.status === 'connected') {
       throw new Error('Session is already connected; QR code is not available.');
     }
+    if (session.status === 'logged_out') {
+      await this.#resetLocalAuth(session);
+    }
     if (!session.qr && !session.starting) {
       await this.start(id);
     }
@@ -353,6 +356,18 @@ export class SessionManager {
     session.starting = false;
     if (socket && logout) await socket.logout();
     else if (socket?.end) socket.end(undefined);
+  }
+
+  async #resetLocalAuth(session) {
+    await this.#closeSocket(session, false).catch((error) => {
+      logger.warn({ sessionId: session.id, error: error.message }, 'Socket close failed during auth reset');
+    });
+    await fs.rm(path.join(config.sessionsDir, session.id), { recursive: true, force: true });
+    session.status = 'stopped';
+    session.qr = null;
+    session.lastError = null;
+    session.reconnectAttempts = 0;
+    session.pausedUntil = null;
   }
 
   async #waitForQr(id, timeoutMs) {
