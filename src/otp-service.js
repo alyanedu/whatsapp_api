@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { config } from './config.js';
+import { logger } from './logger.js';
 import { maskPhone, normalizePhone } from './utils/phone.js';
 import { findMissingVariables, renderTemplate } from './template-service.js';
 
@@ -50,6 +51,13 @@ export class OtpService {
         success: true,
         messageId: result.messageId,
       });
+      logger.info({
+        type: 'otp',
+        phoneMasked: maskPhone(phone.e164),
+        purpose: payload.purpose,
+        sessionId: result.sessionId,
+        messageId: result.messageId,
+      }, 'WhatsApp OTP send accepted');
       return {
         success: true,
         phone: maskPhone(phone.e164),
@@ -65,6 +73,12 @@ export class OtpService {
         success: false,
         error: error.message,
       });
+      logger.warn({
+        type: 'otp',
+        phoneMasked: maskPhone(phone.e164),
+        purpose: payload.purpose,
+        error: error.message,
+      }, 'WhatsApp OTP send failed');
       throw error;
     }
   }
@@ -91,6 +105,13 @@ export class OtpService {
         success: true,
         messageId: result.messageId,
       });
+      logger.info({
+        type: 'message',
+        phoneMasked: maskPhone(phone.e164),
+        purpose: payload.purpose,
+        sessionId: result.sessionId,
+        messageId: result.messageId,
+      }, 'WhatsApp message send accepted');
       return {
         success: true,
         phone: maskPhone(phone.e164),
@@ -106,6 +127,12 @@ export class OtpService {
         success: false,
         error: error.message,
       });
+      logger.warn({
+        type: 'message',
+        phoneMasked: maskPhone(phone.e164),
+        purpose: payload.purpose,
+        error: error.message,
+      }, 'WhatsApp message send failed');
       throw error;
     }
   }

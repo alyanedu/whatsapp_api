@@ -217,6 +217,10 @@ export class SessionManager {
     const errors = [];
     for (const session of candidates) {
       try {
+        const [recipient] = await session.socket.onWhatsApp(jid);
+        if (!recipient?.exists) {
+          throw new Error(`Recipient ${jid} is not available on WhatsApp.`);
+        }
         const result = await session.socket.sendMessage(jid, { text });
         session.failureCount = 0;
         session.lastSentAt = new Date().toISOString();
