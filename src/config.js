@@ -51,6 +51,7 @@ export const config = {
   requestsPerMinute: intEnv('REQUESTS_PER_MINUTE', 60),
   otpRequestsPer15Min: intEnv('OTP_REQUESTS_PER_15_MIN', 30),
   maxLogEntries: intEnv('MAX_LOG_ENTRIES', 200),
+  messageAckTimeoutSeconds: intEnv('MESSAGE_ACK_TIMEOUT_SECONDS', 15),
 };
 
 export function assertConfig() {

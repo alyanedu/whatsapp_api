@@ -16,6 +16,8 @@ export class SessionManager {
     this.sessionsFile = path.join(config.dataDir, 'sessions.json');
     this.sessions = new Map();
     this.routeCursors = new Map();
+    this.pendingAcks = new Map();
+    this.recentAcks = new Map();
   }
 
   async init() {
@@ -91,6 +93,7 @@ export class SessionManager {
       session.socket = socket;
       socket.ev.on('creds.update', saveCreds);
       socket.ev.on('connection.update', (update) => this.#onConnectionUpdate(session, update));
+      socket.ev.on('messages.update', (updates) => this.#onMessagesUpdate(session, updates));
       socket.ev.on('messaging-history.set', () => undefined);
       return this.#publicSession(session);
     } catch (error) {
@@ -221,10 +224,13 @@ export class SessionManager {
         if (!recipient?.exists) {
           throw new Error(`Recipient ${jid} is not available on WhatsApp.`);
         }
-        const result = await session.socket.sendMessage(jid, { text });
+        const recipientJid = recipient.jid || jid;
+        const result = await session.socket.sendMessage(recipientJid, { text });
+        const messageId = result?.key?.id || null;
+        const ack = await this.#waitForMessageAck(messageId, config.messageAckTimeoutSeconds * 1000);
         session.failureCount = 0;
         session.lastSentAt = new Date().toISOString();
-        return { sessionId: session.id, messageId: result?.key?.id || null };
+        return { sessionId: session.id, messageId, ackStatus: ack.status, ackLabel: ack.label };
       } catch (error) {
         this.#recordFailure(session, error);
         errors.push(`${session.id}: ${error.message}`);
@@ -312,6 +318,65 @@ export class SessionManager {
       if (!loggedOut && session.enabled) {
         this.#scheduleReconnect(session);
       }
+    }
+  }
+
+  #onMessagesUpdate(session, updates) {
+    for (const update of updates) {
+      const messageId = update.key?.id;
+      const status = update.update?.status;
+      if (!messageId || status == null) continue;
+      const label = this.#messageStatusLabel(status);
+      logger.info({ sessionId: session.id, messageId, status, label }, 'WhatsApp message status update');
+      this.recentAcks.set(messageId, { status, label, receivedAt: Date.now() });
+      this.#pruneRecentAcks();
+      const pending = this.pendingAcks.get(messageId);
+      if (pending && status >= 2) {
+        clearTimeout(pending.timer);
+        this.pendingAcks.delete(messageId);
+        pending.resolve({ status, label });
+      }
+    }
+  }
+
+  #waitForMessageAck(messageId, timeoutMs) {
+    if (!messageId) {
+      return Promise.reject(new Error('WhatsApp did not return a message id.'));
+    }
+    const recent = this.recentAcks.get(messageId);
+    if (recent?.status >= 2) return Promise.resolve(recent);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingAcks.delete(messageId);
+        reject(new Error(`Timed out waiting for WhatsApp acknowledgement for message ${messageId}.`));
+      }, timeoutMs);
+      this.pendingAcks.set(messageId, { resolve, reject, timer });
+    });
+  }
+
+  #pruneRecentAcks() {
+    const cutoff = Date.now() - 60_000;
+    for (const [messageId, ack] of this.recentAcks.entries()) {
+      if (ack.receivedAt < cutoff) this.recentAcks.delete(messageId);
+    }
+  }
+
+  #messageStatusLabel(status) {
+    switch (status) {
+      case 0:
+        return 'error';
+      case 1:
+        return 'pending';
+      case 2:
+        return 'server_ack';
+      case 3:
+        return 'delivery_ack';
+      case 4:
+        return 'read';
+      case 5:
+        return 'played';
+      default:
+        return 'unknown';
     }
   }
 

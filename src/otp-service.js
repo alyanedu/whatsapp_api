@@ -50,6 +50,8 @@ export class OtpService {
         sessionId: result.sessionId,
         success: true,
         messageId: result.messageId,
+        ackStatus: result.ackStatus,
+        ackLabel: result.ackLabel,
       });
       logger.info({
         type: 'otp',
@@ -57,12 +59,16 @@ export class OtpService {
         purpose: payload.purpose,
         sessionId: result.sessionId,
         messageId: result.messageId,
+        ackStatus: result.ackStatus,
+        ackLabel: result.ackLabel,
       }, 'WhatsApp OTP send accepted');
       return {
         success: true,
         phone: maskPhone(phone.e164),
         sessionId: result.sessionId,
         messageId: result.messageId,
+        ackStatus: result.ackStatus,
+        ackLabel: result.ackLabel,
         sentAt: new Date().toISOString(),
       };
     } catch (error) {
@@ -104,6 +110,8 @@ export class OtpService {
         sessionId: result.sessionId,
         success: true,
         messageId: result.messageId,
+        ackStatus: result.ackStatus,
+        ackLabel: result.ackLabel,
       });
       logger.info({
         type: 'message',
@@ -111,12 +119,16 @@ export class OtpService {
         purpose: payload.purpose,
         sessionId: result.sessionId,
         messageId: result.messageId,
+        ackStatus: result.ackStatus,
+        ackLabel: result.ackLabel,
       }, 'WhatsApp message send accepted');
       return {
         success: true,
         phone: maskPhone(phone.e164),
         sessionId: result.sessionId,
         messageId: result.messageId,
+        ackStatus: result.ackStatus,
+        ackLabel: result.ackLabel,
         sentAt: new Date().toISOString(),
       };
     } catch (error) {
