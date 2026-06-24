@@ -19,7 +19,6 @@ function trustProxyEnv(name, fallback) {
   const value = process.env[name];
   if (value == null || value === '') return fallback;
   const normalized = value.toLowerCase();
-  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
   if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
   const numberValue = Number.parseInt(value, 10);
   return Number.isFinite(numberValue) ? numberValue : value;
